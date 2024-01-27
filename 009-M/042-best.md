@@ -2,7 +2,7 @@ Acrobatic Flint Lobster
 
 medium
 
-# Failed Deployment - `UNISWAP_V3_FACTORY` is hard-coded to `0x1F98431c8aD98523631AE4a59f267346ea31F984`.
+# Failed Deployment
 
 ## Summary
 
@@ -40,5 +40,4 @@ Manual Review
 ## Recommendation
 
 Elevate [`UNISWAP_V3_FACTORY`](https://github.com/sherlock-audit/2024-01-looksrare/blob/7d76b96a58a6aee38f23bb38b8a5daa3bdc03f7c/contracts-yolo/contracts/PriceOracle.sol#L18) to an `immutable` variable initialized upon construction of a [`PriceOracle`](https://github.com/sherlock-audit/2024-01-looksrare/blob/7d76b96a58a6aee38f23bb38b8a5daa3bdc03f7c/contracts-yolo/contracts/PriceOracle.sol#L18).
-
 

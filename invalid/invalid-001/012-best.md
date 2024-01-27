@@ -58,4 +58,3 @@ function cancelAfterRandomnessRequest() external nonReentrant {
         _startRound({_roundsCount: roundId});
     }
 ```
-

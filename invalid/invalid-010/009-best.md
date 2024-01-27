@@ -2,16 +2,16 @@ Recumbent Hemp Chameleon
 
 high
 
-# YoloV2::claimPrizes() will send extra ERC20 tokens to the withdrawing user or revert
+# YoloV2::withdrawDeposits() will send extra ERC20 tokens to the withdrawing user or revert
 
 ## Summary
-claimPrizes() has a buggy logic that will result in sending of extra tokens to the caller. Incase the YoloV2 contract does not have sufficient tokens in the balance, the transaction will revert.
+Withdraw Deposits() has a buggy logic that will result in sending of extra tokens to the caller. Incase the YoloV2 contract does not have sufficient tokens in the balance, the transaction will revert.
 
 ## Vulnerability Detail
-claimPrizes() function takes an array of tokens that can be withdrawn from a round that was drawn.
+withdrawDeposits() function takes an array of tokens that can be withdrawn from a round that was cancelled.
 During deposit() call, user can deposit ERC20 or ERC721. So, the singledesposit in the round can contain both ERC20 and ERC721.
 
-The claimPrizes Logic for ERC20 uses a memory structure call "TransferAccumulator" which can track amount for a single ERC20 token. While looping through the deposits, in order to transfer the tokens, the logic uses _transferTokenOut() function to transfer the tokens to the msg.sender from the contract's balance.
+The withdraw Logic for ERC20 uses a memory structure call "TransferAccumulator" which can track amount for a single ERC20 token. While looping through the deposits, in order to transfer the tokens, the logic uses _transferTokenOut() function to transfer the tokens to the msg.sender from the contract's balance.
 
 For ERC721, it is clean transfer.
 
@@ -55,7 +55,7 @@ Now, in the loop on deposits,
                                     It will also update the **transferAccumulator::tokenAddress** **to tokenC** and amount to 150.
 
 
-Now, once it returns back to claimPrizes(), the transferAccumulator will have the below info
+Now, once it returns back to withdrawDeposits(), the transferAccumulator will have the below info
 
   transferAccumulator.tokenAddress = tokenC;
   transferAccumulator.amount = 150;
@@ -92,15 +92,13 @@ Below is the logic where post transfer, the token address and amount are updated
         }
 ```
 
-Also, refer to the  claimPrizes() function where on returning, it is sending the tokens again.
-https://github.com/sherlock-audit/2024-01-looksrare/blob/main/contracts-yolo/contracts/YoloV2.sol#L491-L506
+Also, refer to the  withdrawDeposits() function where on returning, it is sending the tokens again.
 
-
-https://github.com/sherlock-audit/2024-01-looksrare/blob/main/contracts-yolo/contracts/YoloV2.sol#L535C6-L537C10
+https://github.com/sherlock-audit/2024-01-looksrare/blob/main/contracts-yolo/contracts/YoloV2.sol#L625-L631
 
 and here, when transferAccumulator.amount !=0, it attempts to send tokens again.
 ```solidity
-   if (transferAccumulator.amount != 0) {
+if (transferAccumulator.amount != 0) {
             _executeERC20DirectTransfer(transferAccumulator.tokenAddress, msg.sender, transferAccumulator.amount);
         }
 ```
