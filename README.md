@@ -171,7 +171,7 @@ See comments in #128
 Source: https://github.com/sherlock-audit/2024-01-looksrare-judging/issues/18 
 
 ## Found by 
-0rpse, 0xG0P1, 0xMAKEOUTHILL, 0xrice.cooker, Cosine, HSP, KingNFT, Krace, KupiaSec, LTDingZhen, Varun\_05, asauditor, ast3ros, bughuntoor, cawfree, cocacola, dany.armstrong90, deepplus, dimulski, fibonacci, jasonxiale, mert\_eren, mstpr-brainbot, nobody2018, petro1912, pontifex, s1ce, thank\_you, unforgiven, vvv, zraxx, zzykxx
+0rpse, 0xG0P1, 0xMAKEOUTHILL, 0xrcontre360, 0xrice.cooker, Cosine, HSP, KingNFT, Krace, KupiaSec, LTDingZhen, Varun\_05, asauditor, ast3ros, bughuntoor, cawfree, cocacola, dany.armstrong90, deepplus, dimulski, fibonacci, jasonxiale, mert\_eren, mstpr-brainbot, nobody2018, petro1912, pontifex, s1ce, thank\_you, unforgiven, vvv, zraxx, zzykxx
 ## Summary
 The main invariant to determine the winner is that the indexes must be in ascending order with no repetitions. Therefore, depositing "0" is strictly prohibited as it does not increase the index. However, there is a method by which a user can easily deposit "0" ether to any round without any extra costs than gas.
 ## Vulnerability Detail
@@ -300,6 +300,12 @@ https://github.com/LooksRare/contracts-yolo/pull/176
 
 
 
+**mstpr**
+
+> LooksRare/contracts-yolo#176
+
+Fix LGTM!
+
 # Issue M-1: Rounds can not be immediately drawn after fulfillRandomWords due to VRF contracts reentrancy guard 
 
 Source: https://github.com/sherlock-audit/2024-01-looksrare-judging/issues/43 
@@ -383,83 +389,110 @@ I believe this can be a high issue because if the fulFillRandomWords reverts cha
 
 While it's a non-trivial bug, technically no fund is lost, and the stuck round can be cancelled. Based on Sherlock's guidelines should this be a High? I will leave the final judgment to @nevillehuang.
 
-# Issue M-2: Rounds first ERC20 depositor may have fewer entries than they have previewed 
+**ArnieGod**
 
-Source: https://github.com/sherlock-audit/2024-01-looksrare-judging/issues/50 
+Escalate
 
-## Found by 
-mstpr-brainbot, unforgiven
-## Summary
-Users can deposit whitelisted ERC20 tokens to participate in a round. The pricing of ERC20 tokens is determined via TWAP and quoted in ETH terms. Due to TWAP lags and the uncertainty of transaction mining timing, users may end up with fewer entry tickets than intended when sending the transaction.
-## Vulnerability Detail
-When users deposit ERC20 to participate in the round, this is how the entry count of the user is calculated:
-```solidity
-if (price == 0) {
-                        price = erc20Oracle.getTWAP(tokenAddress, uint32(TWAP_DURATION));
-                        prices[tokenAddress][roundId] = price;
-                    }
+Would like to respectfully escalate this down to invalid.
 
-                    uint256[] memory amounts = singleDeposit.tokenIdsOrAmounts;
-                    if (amounts.length != 1) {
-                        revert InvalidLength();
-                    }
+As @0xhiroshi highlights, there is no loss of funds, instead the only effect of this bug is a DOS of 24 hours, after the 24 hours, the round can be canceled.
 
-                    uint256 amount = amounts[0];
+According to sherlock documentation, if a DOS does not last more than 1 week, it does not constitute a valid issue.
+> The issue causes locking of funds for users for more than a week
 
-                    uint256 entriesCount = ((price * amount) / (10 ** IERC20(tokenAddress).decimals())) /
-                        round.valuePerEntry;
-                    if (entriesCount == 0) {
-                        revert InvalidValue();
-                    }
-```
-The very first depositor of the ERC20 token in a round determines the price for the others. 
-Also as we can see the entry count is round down by deposits. Since the tx sent to network is not guaranteed to be executed in the current block that the user queried the TWAP price, user can get lesser entries than supposed to. 
+Additionally, given that the dos is caused because of an external contract this further supports my reasoning as to why this issue is invalid. Given that the readme states that 
+> In case of external protocol integrations, are the risks of external contracts pausing or executing an emergency withdrawal acceptable? If not, Watsons will submit issues related to these situations that can harm your protocol's functionality.
 
-**Textual PoC:**
-Suppose the round's valuePerEntry is 1 ether, and a user (Alice) is depositing USDC to participate in the round. Assume that 1 ETH is valued at $2000 USDC in the TWAP before Alice sends the transaction to the network. Alice aims to get exactly 2 entries, requiring her to deposit precisely 4000 USDC. If she deposits 3999 USDC, she will receive only 1 entry; if she deposits 4001 USDC, she will get 2 entries. Therefore, there is no reason for Alice to deposit a lesser or greater amount than she should because of the rounding.
+> Yes
 
-Since Alice cannot guarantee that the transaction she sent to the network will be mined in the current block where she viewed the TWAP price, and she has no idea whether the next block's TWAP price will change slightly, she can easily end up with 1 entry instead of 2. Here are a couple of scenarios demonstrating how this can happen:
+In conclusion based on sherlock docs of what makes a valid issue, and the readme, this issue should be invalid.
 
-Alice sends 4000 USDC, which is the current TWAP price at the time she viewed it in the frontend of the app at block number "x." Alice's transaction is mined at block "x+2," and between those 2 blocks, the price changes slightly. Now, TWAP indicates the price of 1 ETH is 2000.0230 USDC, resulting in Alice receiving only 1 entry when she intended to get 2 entries with exactly 4000 USDC. This means Alice deposited an extra 1999.977 USDC that didn't contribute to her entry count.
-
-Alice sends 4000 USDC, which is the current TWAP price at the time she viewed it in the frontend of the app at block number "x." TWAP prices are updated only per block. Alice's transaction can be executed at best at block "x+1," the very next block to be mined. Just before Alice's transaction, there is a swap executed in the pool that TWAP queried, and the price now changed to 1 ETH = 2000.0230 USDC. Alice again buys only 1 entry and spends 1999.977 USDC for nothing.
-## Impact
-As users are not encouraged to deposit slightly more or less than the exact TWAP-based price for ERC20 deposits, there is a risk of various scenarios outlined in the detailed section. These scenarios involve changes in the TWAP price, leading users to deposit unnecessary tokens and receive fewer entries than anticipated. In such cases, funds are spent without obtaining an entry, hence, I'll label this as high.
-## Code Snippet
-https://github.com/sherlock-audit/2024-01-looksrare/blob/7d76b96a58a6aee38f23bb38b8a5daa3bdc03f7c/contracts-yolo/contracts/YoloV2.sol#L1161-L1178
-## Tool used
-
-Manual Review
-
-## Recommendation
-Introduce a variable named "minimumEntries" to "Deposits" struct and ensure that the user depositing ERC20 tokens has to get the minimum entry deposit count on every deposit or revert.
-
-
-
-## Discussion
 
 **sherlock-admin2**
 
-1 comment(s) were left on this issue during the judging contest.
+> Escalate
+> 
+> Would like to respectfully escalate this down to invalid.
+> 
+> As @0xhiroshi highlights, there is no loss of funds, instead the only effect of this bug is a DOS of 24 hours, after the 24 hours, the round can be canceled.
+> 
+> According to sherlock documentation, if a DOS does not last more than 1 week, it does not constitute a valid issue.
+> > The issue causes locking of funds for users for more than a week
+> 
+> Additionally, given that the dos is caused because of an external contract this further supports my reasoning as to why this issue is invalid. Given that the readme states that 
+> > In case of external protocol integrations, are the risks of external contracts pausing or executing an emergency withdrawal acceptable? If not, Watsons will submit issues related to these situations that can harm your protocol's functionality.
+> 
+> > Yes
+> 
+> In conclusion based on sherlock docs of what makes a valid issue, and the readme, this issue should be invalid.
+> 
 
-**takarez** commented:
->  valid: medium(5)
+You've created a valid escalation!
 
+To remove the escalation from consideration: Delete your comment.
 
+You may delete or edit your escalation comment anytime before the 48-hour escalation window closes. After that, the escalation becomes final.
 
-**jpopxfile**
+**mstpr**
 
-https://github.com/LooksRare/contracts-yolo/pull/186
+> LooksRare/contracts-yolo#175
+
+Fix LGTM!
 
 **nevillehuang**
 
-@0xhiroshi @jpopxfile I assume you guys agree with this finding, and if so could you add the relevant sponsor confirmed tag?
+@mstpr @ArnieGod This looks to me to be not just a regular DoS., but could occur every single time the following scenario described happens:
+
+> If the future round can be "drawn" immediately when the current round ends this execution will revert because of chainlink contracts reentrancy
+
+So if every single time admin needs to be forced to cancel rounds, this is broken functionality to me and should constitute medium severity, since it breaks the intended game mechanism catering to the above scenario every time.
 
 **0xhiroshi**
 
-@nevillehuang done, confirmed medium finding 
+> @mstpr This looks to me to be not just a regular DoS., but could occur every single time the following scenario described happens:
+> 
+> > If the future round can be "drawn" immediately when the current round ends this execution will revert because of chainlink contracts reentrancy
+> 
+> So if every single time admin needs to be forced to cancel rounds, this is broken functionality to me and should constitute medium severity, since it breaks the intended game mechanism catering to the above scenario every time.
 
-# Issue M-3: The number of deposits in a round can be larger than MAXIMUM_NUMBER_OF_DEPOSITS_PER_ROUND 
+Yes this can happen every single time and it's broken functionality.
+
+**mstpr**
+
+@nevillehuang @0xhiroshi 
+From what I see if fullFillRandomWords ever fails in chainlink the chainlink keepers will not be calling the contract once again. If that's true, the contract has to be redeployed and basically the game is fully not playable for any round. Would that make it a high issue ? 
+
+**nevillehuang**
+
+@mstpr I don't think so, because the round can be cancelled and the deposited funds can be retrieved, than the fix can be implemented. So this is essentially a permanent DoS for that scenario.
+
+**Czar102**
+
+Breaking core functionality without loss of funds is a Medium severity issue.
+> [A medium severity issue] breaks core contract functionality, rendering the contract useless (...)
+
+Planning to reject the escalation and leave the issue as is.
+
+**detectiveking123**
+
+@Czar102 Would appreciate if you could hold off on resolving this one for the next day or so. Would like to think about it for a bit. 
+
+**Czar102**
+
+Result:
+Medium
+Unique
+
+Sorry @detectiveking123, but I can't hold off the resolution any longer.
+
+**sherlock-admin2**
+
+Escalations have been resolved successfully!
+
+Escalation status:
+- [ArnieGod](https://github.com/sherlock-audit/2024-01-looksrare-judging/issues/43/#issuecomment-1919957697): rejected
+
+# Issue M-2: The number of deposits in a round can be larger than MAXIMUM_NUMBER_OF_DEPOSITS_PER_ROUND 
 
 Source: https://github.com/sherlock-audit/2024-01-looksrare-judging/issues/78 
 
@@ -608,123 +641,9 @@ https://github.com/LooksRare/contracts-yolo/pull/180
 
 The above comment is incorrect, since this can potentially impact outcome of game by bypassing an explicit rule/invariant of fixed 100 deposits per round, this should constitute medium severity
 
-# Issue M-4: Reservoir "bid-ask midpoint" oracle can be used instead of the "floor" oracle 
+**mstpr**
 
-Source: https://github.com/sherlock-audit/2024-01-looksrare-judging/issues/82 
+> LooksRare/contracts-yolo#180
 
-## Found by 
-HSP, zzykxx
-## Summary
-Users can use the reservoir `Collection bid-ask midpoint` instead of the `Collection floor` pricing.
-
-## Vulnerability Detail
-Reservoir NFT oracle offers three main different pricing:
-- Collection floor
-- Collection bid-ask midpoint
-- Collection top bid oracle
-
-The price returned by the oracle determines the amount of entries a user should get when depositing an NFT, the protocol is meant to use the `Collection floor` but a user might decide to use the `Collection bid-ask midpoint` instead because they both return the same [`messageHash`](https://github.com/sherlock-audit/2024-01-looksrare/blob/main/contracts-yolo/contracts/YoloV2.sol#L1613-L1626).
-
-Let's take as an example the pudge penguins collection. 
-
-Querying reservoir for the [`Collection floor`](https://docs.reservoir.tools/reference/getoraclecollectionsflooraskv6):
-```bash
-curl --request GET \
-     --url 'https://api.reservoir.tools/oracle/collections/floor-ask/v6?kind=twap&twapSeconds=3600&collection=0xbd3531da5cf5857e7cfaa92426877b022e612cf8' \
-     --header 'accept: */*' \
-     --header 'x-api-key: demo-api-key'
-```
-
-returns:
-```bash
-{
-  "price": 18.18581,
-  "message": {
-    "id": "0x15530ce04dad67f6b6e8213c7e5552bc046bb3c404fe4b338dca757a684c684c",
-    "payload": "0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000fc60fb68a730bb8e",
-    "timestamp": 1706006459,
-    "chainId": "1",
-    "signature": "0x27d3c605f06b0627263971f73f687a49a9b395de26975c2643c3eb0236af8096523a22911f327c100ca3578cf7ae599c5c0c711dca043718f549ea1dc51f69ed1c"
-   }
-}
-```
-
-Querying reservoir for the [`Collection bid-ask midpoint`](https://docs.reservoir.tools/reference/getoraclecollectionsbidaskmidpointv1):
-```bash
-curl --request GET \
-     --url 'https://api.reservoir.tools/oracle/collections/bid-ask-midpoint/v1?kind=twap&twapSeconds=3600&collection=0xbd3531da5cf5857e7cfaa92426877b022e612cf8' \
-     --header 'accept: */*' \
-     --header 'x-api-key: demo-api-key'
-```
-returns:
-```bash
-{
-  "price": 18.0121,
-  "message": {
-    "id": "0x15530ce04dad67f6b6e8213c7e5552bc046bb3c404fe4b338dca757a684c684c",
-    "payload": "0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f9f7d4c8fff5f31d",
-    "timestamp": 1706006939,
-    "chainId": "1",
-    "signature": "0x7adee5fad3928460773af76aaaa1a969fb1d196de8c879353d21b36d6f30fb091fd177a0b398ee7ed05af8c79e7c702231b4f1cc7f72d38fb17e37b50d96d4f41b"
-  }
-}
-```
-
-As shown the `message.id` is the same, but the price is different. Because the `message.id` is the same it's possible for an user to choose which pricing to use at its discretion.
-
-Since the `Collection bid-ask midpoint` price is always lower than the `Collection floor` this can be used by an attacker to lower the amount of entries a depositor will get and increase his chances of winning as a consequence. 
-
-Let's suppose Alice is participating in round where `valuePerEntry = 0.1ETH` and she already owns 500 entry tickets because of some ETH she deposited.
-
-Bob also wants to join and sends a [`deposit()`](https://github.com/sherlock-audit/2024-01-looksrare/blob/main/contracts-yolo/contracts/YoloV2.sol#L305) transaction to deposit 10 pudgy penguins. He gets the reservoir oracle signature for the pudgy penguins `Collection floor` for a price of `18.18581ETH` per NFT and submit his transaction. Bob is expecting `18.18/0.1 = 181*10 = 1810` entry tickets. 
-
-Alice notices this and frontruns Bob deposit by depositing a pudgy penguin herself, but she uses the reservoir pricing for the `Collection bid-ask midpoint` instead, this sets the price of a pudgy penguin to `18.0121ETH` for the whole round. Alice receives `18.01/0.1 = 180` entry tickets for this.
-
-At this point Bob transaction goes through, but he receives `18.01/0.1 = 180*10 = 1800` entry tickets instead of `1810`. 
-
-The odds of winning are:
-- Alice: (500 + 180)/(500+180+1800) = `27.41%`
-- Bob: (1800)/(500+180+1800) = `72.58%`
-
-If Alice deposited a pudgy penguin at the price intended by the protocol instead of the lowered one the odds of winning would have been:
-- Alice: (500+181)/(500+180+1810) = `27.34%`
-- Bob: (1810)/(500+180+1810) = `72.69%`
-
-## Impact
-An attacker is able to increase his chances of winning by lowering the entry tickets received by other participants.
-
-## Code Snippet
- - [`messageHash`](https://github.com/sherlock-audit/2024-01-looksrare/blob/main/contracts-yolo/contracts/YoloV2.sol#L1613-L1626)
-## Tool used
-
-Manual Review
-
-## Recommendation
-
-I'm not sure why Reservoir allows this to happen. Given that the protocol admins are trusted a fix to this could be to add an extra signature from a protocol-controlled private key on top of the reservoir oracle signature to ensure only the `Collection floor` can be used.
-
-
-
-## Discussion
-
-**0xhiroshi**
-
-Reservoir has updated its bid-ask midpoint API and the 2 endpoints no longer return the same message ID
-
-**sherlock-admin2**
-
-1 comment(s) were left on this issue during the judging contest.
-
-**takarez** commented:
->  valid: price can be manipulated; medium(11)
-
-
-
-**nevillehuang**
-
-@0xhiroshi does that mean this was fixed before the contest period?
-
-**0xhiroshi**
-
-@nevillehuang We presented this issue to Reservoir and then they fixed it.
+Fix LGTM!
 
